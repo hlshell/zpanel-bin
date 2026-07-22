@@ -349,7 +349,7 @@ jobs:
 
             shutil.rmtree(temp_dir)
             print("Windows zip repacked successfully")
-            PYEOF
+          PYEOF
           fi
 
       - name: Update VERSION and latest.json
