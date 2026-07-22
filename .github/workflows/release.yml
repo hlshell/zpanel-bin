@@ -1,0 +1,226 @@
+name: Release
+
+on:
+  # 手动触发
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'zpanel tag to build (e.g. v0.4.1)'
+        required: true
+        default: ''
+  # 接收 zpanel 仓库的 repository_dispatch 事件
+  repository_dispatch:
+    types: [release]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ─── Linux x86_64 ───
+  build-linux-amd64:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "version=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ github.event.client_payload.tag }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout zpanel source
+        uses: actions/checkout@v4
+        with:
+          repository: hlshell/zpanel
+          ref: ${{ steps.tag.outputs.version }}
+          token: ${{ secrets.ZPANEL_TOKEN }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Build binary
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+
+      - name: Build WASM
+        run: |
+          cargo install wasm-pack
+          wasm-pack build --target web --out-dir www --release
+
+      - name: Package
+        run: |
+          mkdir -p artifact
+          cp target/x86_64-unknown-linux-gnu/release/zpanel artifact/zpanel-linux-amd64
+          cp -r www/js artifact/
+          cp etc/lang/cn.json etc/lang/en.json etc/lang/jp.json etc/lang/th.json etc/lang/tw.json -t artifact/ 2>/dev/null || true
+          cd artifact && tar czf ../zpanel-linux-amd64.tar.gz .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zpanel-linux-amd64
+          path: zpanel-linux-amd64.tar.gz
+
+  # ─── Linux aarch64 ───
+  build-linux-arm64:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "version=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ github.event.client_payload.tag }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout zpanel source
+        uses: actions/checkout@v4
+        with:
+          repository: hlshell/zpanel
+          ref: ${{ steps.tag.outputs.version }}
+          token: ${{ secrets.ZPANEL_TOKEN }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Install cross-compiler
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build binary
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --release --target aarch64-unknown-linux-gnu
+
+      - name: Package
+        run: |
+          mkdir -p artifact
+          cp target/aarch64-unknown-linux-gnu/release/zpanel artifact/zpanel-linux-arm64
+          cd artifact && tar czf ../zpanel-linux-arm64.tar.gz .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zpanel-linux-arm64
+          path: zpanel-linux-arm64.tar.gz
+
+  # ─── Windows x86_64 ───
+  build-windows-amd64:
+    runs-on: windows-latest
+    steps:
+      - name: Determine tag
+        id: tag
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "version=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ github.event.client_payload.tag }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout zpanel source
+        uses: actions/checkout@v4
+        with:
+          repository: hlshell/zpanel
+          ref: ${{ steps.tag.outputs.version }}
+          token: ${{ secrets.ZPANEL_TOKEN }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build binary
+        run: cargo build --release
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p artifact
+          cp target/release/zpanel.exe artifact/zpanel-windows-amd64.exe
+          cd artifact && 7z a ../zpanel-windows-amd64.zip .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zpanel-windows-amd64
+          path: zpanel-windows-amd64.zip
+
+  # ─── WASM 产物（独立打包） ───
+  build-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "version=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ github.event.client_payload.tag }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout zpanel source
+        uses: actions/checkout@v4
+        with:
+          repository: hlshell/zpanel
+          ref: ${{ steps.tag.outputs.version }}
+          token: ${{ secrets.ZPANEL_TOKEN }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+
+      - name: Build WASM
+        run: wasm-pack build --target web --out-dir www --release
+
+      - name: Package
+        run: |
+          mkdir -p artifact
+          cp www/js/* artifact/
+          cd artifact && tar czf ../zpanel-wasm.tar.gz .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zpanel-wasm
+          path: zpanel-wasm.tar.gz
+
+  # ─── 发布 Release ───
+  release:
+    needs: [build-linux-amd64, build-linux-arm64, build-windows-amd64, build-wasm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "version=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ github.event.client_payload.tag }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display structure
+        run: find artifacts -type f
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.version }}
+          name: Release ${{ steps.tag.outputs.version }}
+          generate_release_notes: true
+          files: |
+            artifacts/zpanel-linux-amd64/zpanel-linux-amd64.tar.gz
+            artifacts/zpanel-linux-arm64/zpanel-linux-arm64.tar.gz
+            artifacts/zpanel-windows-amd64/zpanel-windows-amd64.zip
+            artifacts/zpanel-wasm/zpanel-wasm.tar.gz
