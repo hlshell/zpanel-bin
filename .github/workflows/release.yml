@@ -319,36 +319,36 @@ jobs:
 
           if [ -f "artifacts/zpanel-windows-x86_64/zpanel-windows-x86_64.zip" ]; then
             python3 - << 'PYEOF'
-            import zipfile
-            import os
-            import shutil
-            import tempfile
+          import zipfile
+          import os
+          import shutil
+          import tempfile
 
-            zip_path = "artifacts/zpanel-windows-x86_64/zpanel-windows-x86_64.zip"
-            wasm_src = "artifacts/webadmin-wasm/www"
+          zip_path = "artifacts/zpanel-windows-x86_64/zpanel-windows-x86_64.zip"
+          wasm_src = "artifacts/webadmin-wasm/www"
 
-            temp_dir = tempfile.mkdtemp()
-            with zipfile.ZipFile(zip_path, 'r') as zf:
-                zf.extractall(temp_dir)
+          temp_dir = tempfile.mkdtemp()
+          with zipfile.ZipFile(zip_path, 'r') as zf:
+              zf.extractall(temp_dir)
 
-            target_www = os.path.join(temp_dir, "zpanel", "www")
-            os.makedirs(target_www, exist_ok=True)
-            for root, dirs, files in os.walk(wasm_src):
-                rel_path = os.path.relpath(root, wasm_src)
-                target_dir = os.path.join(target_www, rel_path) if rel_path != "." else target_www
-                os.makedirs(target_dir, exist_ok=True)
-                for f in files:
-                    shutil.copy2(os.path.join(root, f), os.path.join(target_dir, f))
+          target_www = os.path.join(temp_dir, "zpanel", "www")
+          os.makedirs(target_www, exist_ok=True)
+          for root, dirs, files in os.walk(wasm_src):
+              rel_path = os.path.relpath(root, wasm_src)
+              target_dir = os.path.join(target_www, rel_path) if rel_path != "." else target_www
+              os.makedirs(target_dir, exist_ok=True)
+              for f in files:
+                  shutil.copy2(os.path.join(root, f), os.path.join(target_dir, f))
 
-            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-                for root, dirs, files in os.walk(temp_dir):
-                    for f in files:
-                        file_path = os.path.join(root, f)
-                        arcname = os.path.relpath(file_path, temp_dir)
-                        zf.write(file_path, arcname)
+          with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+              for root, dirs, files in os.walk(temp_dir):
+                  for f in files:
+                      file_path = os.path.join(root, f)
+                      arcname = os.path.relpath(file_path, temp_dir)
+                      zf.write(file_path, arcname)
 
-            shutil.rmtree(temp_dir)
-            print("Windows zip repacked successfully")
+          shutil.rmtree(temp_dir)
+          print("Windows zip repacked successfully")
           PYEOF
           fi
 
