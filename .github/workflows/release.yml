@@ -1,23 +1,22 @@
 name: Release
 
 on:
-  # 手动触发
   workflow_dispatch:
     inputs:
       tag:
         description: 'zpanel tag to build (e.g. v0.4.1)'
         required: true
         default: ''
-  # 接收 zpanel 仓库的 repository_dispatch 事件
   repository_dispatch:
     types: [release]
 
 env:
   CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  # ─── Linux x86_64 ───
-  build-linux-amd64:
+  build-wasm:
+    name: Build WASM
     runs-on: ubuntu-latest
     steps:
       - name: Determine tag
@@ -30,7 +29,7 @@ jobs:
           fi
 
       - name: Checkout zpanel source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: hlshell/zpanel
           ref: ${{ steps.tag.outputs.version }}
@@ -39,32 +38,48 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-gnu
+          targets: wasm32-unknown-unknown
 
-      - name: Build binary
-        run: cargo build --release --target x86_64-unknown-linux-gnu
+      - name: Cache cargo registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache wasm output
+        uses: actions/cache@v5
+        with:
+          path: |
+            pkg/
+            target/
+          key: ${{ runner.os }}-wasm-build-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install wasm-bindgen
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli
 
       - name: Build WASM
         run: |
-          cargo install wasm-pack
-          wasm-pack build --target web --out-dir www --release
+          cargo build --lib --target wasm32-unknown-unknown --release
+          wasm-bindgen --out-dir pkg --target web target/wasm32-unknown-unknown/release/webadmin.wasm
 
-      - name: Package
+      - name: Package WASM
         run: |
-          mkdir -p artifact
-          cp target/x86_64-unknown-linux-gnu/release/zpanel artifact/zpanel-linux-amd64
-          cp -r www/js artifact/
-          cp etc/lang/cn.json etc/lang/en.json etc/lang/jp.json etc/lang/th.json etc/lang/tw.json -t artifact/ 2>/dev/null || true
-          cd artifact && tar czf ../zpanel-linux-amd64.tar.gz .
+          mkdir -p wasm-staging/www/js
+          cp pkg/webadmin_bg.wasm wasm-staging/www/js/
+          cp pkg/webadmin.js wasm-staging/www/js/
+          cp pkg/webadmin.d.ts wasm-staging/www/js/ || true
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload WASM artifact
+        uses: actions/upload-artifact@v5
         with:
-          name: zpanel-linux-amd64
-          path: zpanel-linux-amd64.tar.gz
+          name: webadmin-wasm
+          path: wasm-staging/
+          if-no-files-found: error
 
-  # ─── Linux aarch64 ───
-  build-linux-arm64:
+  build-linux-musl:
+    name: Build linux-x86_64-musl
     runs-on: ubuntu-latest
     steps:
       - name: Determine tag
@@ -77,39 +92,122 @@ jobs:
           fi
 
       - name: Checkout zpanel source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: hlshell/zpanel
           ref: ${{ steps.tag.outputs.version }}
           token: ${{ secrets.ZPANEL_TOKEN }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc cmake pkg-config libssl-dev musl-dev musl-tools
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Cache cargo registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v5
+        with:
+          path: target
+          key: ${{ runner.os }}-musl-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build binary
+        env:
+          CC: musl-gcc
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+        run: cargo build --release --target x86_64-unknown-linux-musl --bin zpanel
+
+      - name: Package
+        run: |
+          mkdir -p release/zpanel
+          cp target/x86_64-unknown-linux-musl/release/zpanel release/zpanel/zpanel
+          if [ -d "etc" ]; then cp -r etc release/zpanel/; fi
+          if [ -d "www" ]; then cp -r www release/zpanel/; fi
+          cd release
+          tar -czvf zpanel-linux-x86_64-musl.tar.gz zpanel
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: zpanel-linux-x86_64-musl
+          path: release/zpanel-linux-x86_64-musl.tar.gz
+          if-no-files-found: error
+
+  build-linux-arm64:
+    name: Build linux-arm64-gnu
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "version=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ github.event.client_payload.tag }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout zpanel source
+        uses: actions/checkout@v5
+        with:
+          repository: hlshell/zpanel
+          ref: ${{ steps.tag.outputs.version }}
+          token: ${{ secrets.ZPANEL_TOKEN }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc cmake pkg-config libssl-dev gcc-aarch64-linux-gnu
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-unknown-linux-gnu
 
-      - name: Install cross-compiler
-        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+      - name: Cache cargo registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v5
+        with:
+          path: target
+          key: ${{ runner.os }}-arm64-build-target-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build binary
         env:
+          CC: aarch64-linux-gnu-gcc
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-        run: cargo build --release --target aarch64-unknown-linux-gnu
+        run: cargo build --release --target aarch64-unknown-linux-gnu --bin zpanel
 
       - name: Package
         run: |
-          mkdir -p artifact
-          cp target/aarch64-unknown-linux-gnu/release/zpanel artifact/zpanel-linux-arm64
-          cd artifact && tar czf ../zpanel-linux-arm64.tar.gz .
+          mkdir -p release/zpanel
+          cp target/aarch64-unknown-linux-gnu/release/zpanel release/zpanel/zpanel
+          if [ -d "etc" ]; then cp -r etc release/zpanel/; fi
+          if [ -d "www" ]; then cp -r www release/zpanel/; fi
+          cd release
+          tar -czvf zpanel-linux-arm64-gnu.tar.gz zpanel
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
-          name: zpanel-linux-arm64
-          path: zpanel-linux-arm64.tar.gz
+          name: zpanel-linux-arm64-gnu
+          path: release/zpanel-linux-arm64-gnu.tar.gz
+          if-no-files-found: error
 
-  # ─── Windows x86_64 ───
-  build-windows-amd64:
+  build-windows:
+    name: Build windows-x86_64
     runs-on: windows-latest
     steps:
       - name: Determine tag
@@ -123,7 +221,7 @@ jobs:
           fi
 
       - name: Checkout zpanel source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: hlshell/zpanel
           ref: ${{ steps.tag.outputs.version }}
@@ -131,67 +229,47 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Cache cargo registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v5
+        with:
+          path: target
+          key: ${{ runner.os }}-windows-build-target-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build binary
-        run: cargo build --release
+        shell: bash
+        run: |
+          rustup target add x86_64-pc-windows-gnu
+          cargo build --release --target x86_64-pc-windows-gnu --bin zpanel
 
       - name: Package
         shell: bash
         run: |
-          mkdir -p artifact
-          cp target/release/zpanel.exe artifact/zpanel-windows-amd64.exe
-          cd artifact && 7z a ../zpanel-windows-amd64.zip .
+          mkdir -p release/zpanel
+          cp target/x86_64-pc-windows-gnu/release/zpanel.exe release/zpanel/zpanel.exe
+          if [ -d "etc" ]; then cp -r etc release/zpanel/; fi
+          if [ -d "www" ]; then cp -r www release/zpanel/; fi
+          cd release
+          powershell -Command "Compress-Archive -Path zpanel -DestinationPath zpanel-windows-x86_64.zip -Force"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
-          name: zpanel-windows-amd64
-          path: zpanel-windows-amd64.zip
+          name: zpanel-windows-x86_64
+          path: release/zpanel-windows-x86_64.zip
+          if-no-files-found: error
 
-  # ─── WASM 产物（独立打包） ───
-  build-wasm:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Determine tag
-        id: tag
-        run: |
-          if [ -n "${{ inputs.tag }}" ]; then
-            echo "version=${{ inputs.tag }}" >> $GITHUB_OUTPUT
-          else
-            echo "version=${{ github.event.client_payload.tag }}" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Checkout zpanel source
-        uses: actions/checkout@v4
-        with:
-          repository: hlshell/zpanel
-          ref: ${{ steps.tag.outputs.version }}
-          token: ${{ secrets.ZPANEL_TOKEN }}
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install wasm-pack
-        run: cargo install wasm-pack
-
-      - name: Build WASM
-        run: wasm-pack build --target web --out-dir www --release
-
-      - name: Package
-        run: |
-          mkdir -p artifact
-          cp www/js/* artifact/
-          cd artifact && tar czf ../zpanel-wasm.tar.gz .
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: zpanel-wasm
-          path: zpanel-wasm.tar.gz
-
-  # ─── 发布 Release ───
   release:
-    needs: [build-linux-amd64, build-linux-arm64, build-windows-amd64, build-wasm]
+    name: Create Release
+    needs: [build-wasm, build-linux-musl, build-linux-arm64, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -205,13 +283,102 @@ jobs:
             echo "version=${{ github.event.client_payload.tag }}" >> $GITHUB_OUTPUT
           fi
 
+      - name: Checkout zpanel-bin repo
+        uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: artifacts
 
-      - name: Display structure
-        run: find artifacts -type f
+      - name: Display structure of downloaded files
+        run: ls -R artifacts
+
+      - name: Integrate WASM files into each platform package
+        run: |
+          WASM_SRC="artifacts/webadmin-wasm/www"
+
+          if [ ! -d "${WASM_SRC}" ]; then
+            echo "Error: WASM source directory not found at ${WASM_SRC}"
+            echo "Available artifacts:"
+            ls -R artifacts/webadmin-wasm || true
+            exit 1
+          fi
+
+          for artifact in zpanel-linux-x86_64-musl zpanel-linux-arm64-gnu; do
+            if [ -f "artifacts/${artifact}/${artifact}.tar.gz" ]; then
+              mkdir -p "temp/${artifact}"
+              tar -xzf "artifacts/${artifact}/${artifact}.tar.gz" -C "temp/${artifact}"
+              cp -r "${WASM_SRC}/"* "temp/${artifact}/zpanel/www/"
+              tar -czvf "artifacts/${artifact}/${artifact}.tar.gz" -C "temp/${artifact}" zpanel
+              rm -rf "temp/${artifact}"
+            fi
+          done
+
+          if [ -f "artifacts/zpanel-windows-x86_64/zpanel-windows-x86_64.zip" ]; then
+            python3 - << 'PYEOF'
+            import zipfile
+            import os
+            import shutil
+            import tempfile
+
+            zip_path = "artifacts/zpanel-windows-x86_64/zpanel-windows-x86_64.zip"
+            wasm_src = "artifacts/webadmin-wasm/www"
+
+            temp_dir = tempfile.mkdtemp()
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                zf.extractall(temp_dir)
+
+            target_www = os.path.join(temp_dir, "zpanel", "www")
+            os.makedirs(target_www, exist_ok=True)
+            for root, dirs, files in os.walk(wasm_src):
+                rel_path = os.path.relpath(root, wasm_src)
+                target_dir = os.path.join(target_www, rel_path) if rel_path != "." else target_www
+                os.makedirs(target_dir, exist_ok=True)
+                for f in files:
+                    shutil.copy2(os.path.join(root, f), os.path.join(target_dir, f))
+
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for root, dirs, files in os.walk(temp_dir):
+                    for f in files:
+                        file_path = os.path.join(root, f)
+                        arcname = os.path.relpath(file_path, temp_dir)
+                        zf.write(file_path, arcname)
+
+            shutil.rmtree(temp_dir)
+            print("Windows zip repacked successfully")
+            PYEOF
+          fi
+
+      - name: Update VERSION and latest.json
+        run: |
+          VERSION="${{ steps.tag.outputs.version }}"
+
+          echo "$VERSION" > VERSION
+
+          cat > latest.json << EOF
+          {
+            "version": "$VERSION",
+            "release_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "assets": {
+              "linux-x86_64-musl": "zpanel-linux-x86_64-musl.tar.gz",
+              "linux-arm64-gnu": "zpanel-linux-arm64-gnu.tar.gz",
+              "windows-x86_64": "zpanel-windows-x86_64.zip"
+            }
+          }
+          EOF
+
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "Release $VERSION"
+            git push origin main
+          else
+            echo "No changes to commit"
+          fi
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -220,7 +387,6 @@ jobs:
           name: Release ${{ steps.tag.outputs.version }}
           generate_release_notes: true
           files: |
-            artifacts/zpanel-linux-amd64/zpanel-linux-amd64.tar.gz
-            artifacts/zpanel-linux-arm64/zpanel-linux-arm64.tar.gz
-            artifacts/zpanel-windows-amd64/zpanel-windows-amd64.zip
-            artifacts/zpanel-wasm/zpanel-wasm.tar.gz
+            artifacts/zpanel-linux-x86_64-musl/zpanel-linux-x86_64-musl.tar.gz
+            artifacts/zpanel-linux-arm64-gnu/zpanel-linux-arm64-gnu.tar.gz
+            artifacts/zpanel-windows-x86_64/zpanel-windows-x86_64.zip
