@@ -296,6 +296,51 @@ jobs:
       - name: Display structure of downloaded files
         run: ls -R artifacts
 
+      - name: Checkout zpanel repo for changelog
+        uses: actions/checkout@v5
+        with:
+          repository: hlshell/zpanel
+          ref: ${{ steps.tag.outputs.version }}
+          token: ${{ secrets.ZPANEL_TOKEN }}
+          fetch-depth: 0
+          path: zpanel-src
+
+      - name: Generate changelog from zpanel commits
+        id: changelog
+        working-directory: zpanel-src
+        run: |
+          CURRENT_TAG="${{ steps.tag.outputs.version }}"
+          
+          # Find the previous tag (exclude current tag, sort by version, get last)
+          PREV_TAG=$(git tag --list 'v*' --sort=-v:refname | grep -v "^${CURRENT_TAG}$" | head -n 1)
+          
+          echo "Current tag: $CURRENT_TAG"
+          echo "Previous tag: $PREV_TAG"
+          
+          if [ -n "$PREV_TAG" ]; then
+            COMMITS=$(git log --pretty=format:"- %h %s" ${PREV_TAG}..${CURRENT_TAG})
+          else
+            COMMITS=$(git log --pretty=format:"- %h %s" ${CURRENT_TAG})
+          fi
+          
+          # Build changelog body, use GITHUB_OUTPUT with multiline
+          {
+            echo "body<<CHANGELOG_EOF"
+            if [ -n "$PREV_TAG" ]; then
+              echo "**Changes since ${PREV_TAG}:**"
+            else
+              echo "**Initial release:**"
+            fi
+            echo ""
+            if [ -n "$COMMITS" ]; then
+              echo "$COMMITS"
+            else
+              echo "- No commit changes"
+            fi
+            echo ""
+            echo "CHANGELOG_EOF"
+          } >> $GITHUB_OUTPUT
+
       - name: Integrate WASM files into each platform package
         run: |
           WASM_SRC="artifacts/webadmin-wasm/www"
@@ -385,7 +430,7 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.version }}
           name: Release ${{ steps.tag.outputs.version }}
-          generate_release_notes: true
+          body: ${{ steps.changelog.outputs.body }}
           files: |
             artifacts/zpanel-linux-x86_64-musl/zpanel-linux-x86_64-musl.tar.gz
             artifacts/zpanel-linux-arm64-gnu/zpanel-linux-arm64-gnu.tar.gz
