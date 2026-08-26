@@ -436,7 +436,7 @@ jobs:
           tag_name: ${{ steps.tag.outputs.version }}
           name: Release ${{ steps.tag.outputs.version }}
           body: ${{ steps.changelog.outputs.body }}
-          allowUpdates: true
+          overwrite_files: true
           files: |
             artifacts/zpanel-linux-x86_64-musl/zpanel-linux-x86_64-musl.tar.gz
             artifacts/zpanel-linux-arm64-gnu/zpanel-linux-arm64-gnu.tar.gz
