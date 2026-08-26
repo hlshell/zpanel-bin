@@ -421,10 +421,11 @@ jobs:
 
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add VERSION latest.json .gitignore .github/
+          git add VERSION latest.json
           if ! git diff --cached --quiet; then
             git commit -m "Release $VERSION"
-            git push origin main
+            git pull --rebase origin main || true
+            git push origin main || { echo "Push failed, retrying..."; git pull --rebase origin main; git push origin main; }
           else
             echo "No changes to commit"
           fi
@@ -435,6 +436,7 @@ jobs:
           tag_name: ${{ steps.tag.outputs.version }}
           name: Release ${{ steps.tag.outputs.version }}
           body: ${{ steps.changelog.outputs.body }}
+          allowUpdates: true
           files: |
             artifacts/zpanel-linux-x86_64-musl/zpanel-linux-x86_64-musl.tar.gz
             artifacts/zpanel-linux-arm64-gnu/zpanel-linux-arm64-gnu.tar.gz
