@@ -1,6 +1,6 @@
 {
-  "version": "v0.8.26",
-  "release_date": "2026-09-04T10:10:34Z",
+  "version": "v0.8.27",
+  "release_date": "2026-09-04T12:03:44Z",
   "assets": {
     "linux-x86_64-musl": "zpanel-linux-x86_64-musl.tar.gz",
     "linux-arm64-gnu": "zpanel-linux-arm64-gnu.tar.gz",
