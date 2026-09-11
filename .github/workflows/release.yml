@@ -65,6 +65,9 @@ jobs:
 
       - name: Build WASM
         run: |
+          # crate-type 默认为 rlib（避免原生目标链接器符号超限），
+          # WASM 构建需要 cdylib 才能产出 .wasm 文件供 wasm-bindgen 处理
+          sed -i 's/crate-type = \["rlib"\]/crate-type = ["cdylib"]/' Cargo.toml
           cargo build --lib --target wasm32-unknown-unknown --release
           wasm-bindgen --out-dir pkg --target web target/wasm32-unknown-unknown/release/webadmin.wasm
 
