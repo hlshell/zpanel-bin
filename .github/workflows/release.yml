@@ -56,27 +56,32 @@ jobs:
           path: |
             pkg/
             target/
-          key: ${{ runner.os }}-wasm-build-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-wasm-build-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('**/Cargo.toml') }}
 
       - name: Install wasm-bindgen
         uses: taiki-e/install-action@v2
         with:
           tool: wasm-bindgen-cli
 
+      - name: Install wasm-opt
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-opt
+
       - name: Build WASM
         run: |
           # crate-type 默认为 rlib（避免原生目标链接器符号超限），
           # WASM 构建需要 cdylib 才能产出 .wasm 文件供 wasm-bindgen 处理
           sed -i 's/crate-type = \["rlib"\]/crate-type = ["cdylib"]/' Cargo.toml
-          cargo build --lib --target wasm32-unknown-unknown --release
-          wasm-bindgen --out-dir pkg --target web target/wasm32-unknown-unknown/release/webadmin.wasm
+          cargo build --lib --target wasm32-unknown-unknown --profile release-wasm
+          wasm-bindgen --out-dir pkg --target web --no-typescript target/wasm32-unknown-unknown/release-wasm/webadmin.wasm
+          wasm-opt -Oz --strip-producers -o pkg/webadmin_bg.wasm pkg/webadmin_bg.wasm
 
       - name: Package WASM
         run: |
           mkdir -p wasm-staging/www/js
           cp pkg/webadmin_bg.wasm wasm-staging/www/js/
           cp pkg/webadmin.js wasm-staging/www/js/
-          cp pkg/webadmin.d.ts wasm-staging/www/js/ || true
 
       - name: Upload WASM artifact
         uses: actions/upload-artifact@v5
