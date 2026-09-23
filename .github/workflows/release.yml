@@ -77,8 +77,8 @@ jobs:
           cargo build --lib --target wasm32-unknown-unknown --profile release-wasm
           wasm-bindgen --out-dir pkg --target web --no-typescript target/wasm32-unknown-unknown/release-wasm/webadmin.wasm
           wasm-opt -Oz --enable-bulk-memory --strip-producers -o pkg/webadmin_bg_opt.wasm pkg/webadmin_bg.wasm && mv pkg/webadmin_bg_opt.wasm pkg/webadmin_bg.wasm || echo "wasm-opt failed, using unoptimized wasm"
-          gzip -k -9 pkg/webadmin_bg.wasm
-          gzip -k -9 pkg/webadmin.js
+          gzip -k -f -9 pkg/webadmin_bg.wasm
+          gzip -k -f -9 pkg/webadmin.js
 
       - name: Package WASM
         run: |
