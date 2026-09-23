@@ -75,13 +75,17 @@ jobs:
           sed -i 's/crate-type = \["rlib"\]/crate-type = ["cdylib"]/' Cargo.toml
           cargo build --lib --target wasm32-unknown-unknown --profile release-wasm
           wasm-bindgen --out-dir pkg --target web --no-typescript target/wasm32-unknown-unknown/release-wasm/webadmin.wasm
-          wasm-opt -Oz --strip-producers -o pkg/webadmin_bg.wasm pkg/webadmin_bg.wasm
+          wasm-opt -Oz --enable-bulk-memory --strip-producers -o pkg/webadmin_bg.wasm pkg/webadmin_bg.wasm
+          gzip -f -9 pkg/webadmin_bg.wasm
+          gzip -f -9 pkg/webadmin.js
 
       - name: Package WASM
         run: |
           mkdir -p wasm-staging/www/js
-          cp pkg/webadmin_bg.wasm wasm-staging/www/js/
-          cp pkg/webadmin.js wasm-staging/www/js/
+          cp pkg/webadmin_bg.wasm.gz wasm-staging/www/js/
+          cp pkg/webadmin_bg.wasm wasm-staging/www/js/ 2>/dev/null || true
+          cp pkg/webadmin.js.gz wasm-staging/www/js/
+          cp pkg/webadmin.js wasm-staging/www/js/ 2>/dev/null || true
 
       - name: Upload WASM artifact
         uses: actions/upload-artifact@v5
