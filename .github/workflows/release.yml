@@ -1,4 +1,4 @@
-name: Release
+﻿name: Release
 
 
 
@@ -152,7 +152,7 @@ jobs:
 
           wasm-bindgen --out-dir pkg --target web --no-typescript target/wasm32-unknown-unknown/release-wasm/webadmin.wasm
 
-          wasm-opt -Oz --strip-producers -o pkg/webadmin_bg_opt.wasm pkg/webadmin_bg.wasm && mv pkg/webadmin_bg_opt.wasm pkg/webadmin_bg.wasm || echo "wasm-opt failed, using unoptimized wasm"
+          wasm-opt -Oz --strip-producers --enable-bulk-memory -o pkg/webadmin_bg_opt.wasm pkg/webadmin_bg.wasm && mv pkg/webadmin_bg_opt.wasm pkg/webadmin_bg.wasm || echo "wasm-opt failed, using unoptimized wasm"
 
           gzip -k -f -9 pkg/webadmin_bg.wasm
 
@@ -907,4 +907,5 @@ jobs:
             artifacts/zpanel-linux-arm64-gnu/zpanel-linux-arm64-gnu.tar.gz
 
             artifacts/zpanel-windows-x86_64/zpanel-windows-x86_64.zip
+
 
