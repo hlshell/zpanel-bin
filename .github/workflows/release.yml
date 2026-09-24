@@ -152,7 +152,7 @@ jobs:
 
           wasm-bindgen --out-dir pkg --target web --no-typescript target/wasm32-unknown-unknown/release-wasm/webadmin.wasm
 
-          wasm-opt -Oz --strip-producers --detect-features --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-extension --enable-multivalue --enable-reference-types -o pkg/webadmin_bg_opt.wasm pkg/webadmin_bg.wasm && mv pkg/webadmin_bg_opt.wasm pkg/webadmin_bg.wasm || echo "wasm-opt failed, using unoptimized wasm"
+          wasm-opt -Oz --strip-producers --detect-features --enable-bulk-memory --enable-nontrapping-float-to-int -o pkg/webadmin_bg_opt.wasm pkg/webadmin_bg.wasm && mv pkg/webadmin_bg_opt.wasm pkg/webadmin_bg.wasm || echo "wasm-opt failed, using unoptimized wasm"
 
           gzip -k -f -9 pkg/webadmin_bg.wasm
 
